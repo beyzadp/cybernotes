@@ -82,9 +82,25 @@ Diger paylasilan kitapliklardan **ONCE** yuklenen kendi paylasilan nesnelerimizi
 
 ## Putting On Our Coding Hats
 
+Cok basit bir program ile baslayalim.
 
+```c
+#include <unistd.h>
+int main()
+{
+  char str[12];
+  int s;
+  s=read(0, str,13);      
+  write(1, str, s);                          
+  return 0;
+}
+```
 
+Derleyip calistirdigimizda, okudugu yaziyi cikti olarak bize sundugunu goruruz. Gayet basit bir sekilde `stdin`'den veri alir ve `stdout`tan yazdirir. Simdi sahnenin arkasinda olana bakalim:
 
+Normal şartlar altında, dinamik bağlayıcı karşılaştığında `write()` işlevi, adresini standart paylaşılan kitaplıklarda arar. İlk oluşumla karşılaştığında `write()`, bağımsız değişkenleri işleve iletir ve buna göre bir çıktı döndürür. 
+
+Simdi bunu somurme vakti.
 
 
 
