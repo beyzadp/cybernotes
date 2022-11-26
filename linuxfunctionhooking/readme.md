@@ -201,3 +201,4 @@ PATH Hijacking yontemine fazlasiyla benziyor.
 
 Su dakikadan sonra ne zaman `write()` cagirmak istersek (ornegin pythondaki `print()` ya da c'deki `printf()` yazmak istedigimiz sey yerine daha onceden belirledigimiz `Hacked 1337` yazisini goruruz. 
 
+<sub> *bu yazi tryhackme'deki [linux function hooking](https://tryhackme.com/room/linuxfunctionhooking) odasindan cevrilmistir. </sub>
