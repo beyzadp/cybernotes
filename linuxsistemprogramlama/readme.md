@@ -153,6 +153,124 @@ Genel olarak UNIX tabanlı sistemler için şöyle bir özdeyiş vardır: *UNIX 
 
 Bu yaklaşım Linux için de geçerlidir. Bazı dosyaların diğerlerinden daha özel anlamlarının da olabilmesiyle birlikte (aygıt dosyaları, domain soketler, pipe, link vb.), pek çok işlem dosya sistematiği içerisinde kalınarak gerçekleşmektedir.
 
+### Aygıt Dosyaları
+
+Unix sistemlerde fiziksel aygıtlara erişmek için aygıt dosyaları (device files) kullanılır. Aygıt dosyaları sayesinde çekirdek içerisinde hangi aygıt sürücüsünün kullanılacağı belirlenmiş olur.
+
+Bu yöntemle disk, seri port gibi fiziksel aygıtlara erişilebildiği gibi, /dev/random gibi fiziksel bir karşılığı olmayan, sanal aygıt dosyaları üzerinden erişimler de mümkündür.
+
+`/dev` dizini altındaki aygıt dosyalarının isminin ne olduğunun hiç bir önemi bulunmamaktadır.
+
+```
+$ ls -l /dev/sda
+brw-rw---- 1 root disk 8, 0 Mar  7 21:52 /dev/sda
+```
+
+Yukarıdaki çıktıda normal bir dosyadan farklı olarak 3 farklı bilgi daha yer almaktadır. Bunlar:
+
+- Satırın ilk karakteri olan b, blok tabanlı bir aygıt dosyası olduğunu gösterir. Karakter tabanlı aygıt dosyaları için c kullanılır.
+- İlgili aygıta ait Major numarası olarak 8 rakamı görünmektedir.
+- İlgili aygıta ait Minor numarası olarak 0 rakamı görünmektedir.
+
+
+Özetle aygıt dosyaları üzerindeki bu ek bilgilerle, dosyanın karakter tabanlı mı yoksa blok tabanlı erişim gerektirdiği, çekirdek içerisinde kullanılacak Major ve Minor numaralarının neler olduğu bilgisi saklanır.
+
+
+## Kullanıcı, Grup ve Erişim Yetkileri
+
+Linux, çok kullanıcılı bir işletim sistemidir. Çalışan her uygulama mutlaka bir kullanıcı ve grup no ile ilişkilidir; kullanıcı veya grubu olmayan bir uygulamanın olması söz konusu değildir. Uygulama içerisinden yapılan tüm erişimler, bu kullanıcı ve grup hakları doğrultusunda gerçekleştirilir.
+
+|yetki |  aciklama|
+|------|-----------|
+|r     |     okuma|
+|w     |     yazma|
+|x     |calistirma|
+
+### SUID (Set User ID) Yetkisi
+
+SUID yetkisi dosyanın sahibiyle ilgili erişim yetkileri arasında yer alıp, SUID biti üzerinden kontrol edilir.
+
+Bir uygulamada SUID biti aktif ise, o uygulamayı hangi kullanıcı çalıştırırsa çalıştırsın, uygulama dosyasının sahibi kim ise, onun haklarıyla çalışır.
+
+En tipik örnek passwd komutudur.
+
+### SGID (Set Group ID) Yetkisi
+
+SUID biti ile benzer mantıkta, bir uygulamanın, kimin çalıştırdığına bakılmaksızın uygulama dosyasının grup sahibinin grup erişim yetkileri doğrultusunda çalıştırılmasını sağlamaktadır. SGID biti, SUID bitine oranla pratikte daha az kullanım alanı bulmaktadır.
+
+### Sticky Bit
+
+Bir dizin üzerinde sticky bit aktif ise, o dizin altında her kullanıcı yeni dosya oluşturabilir ve kendi oluşturduğu dosyaları silebilir. Diğer kullanıcıların oluşturduğu dosyaları ise silemez.
+
+Ornek: `/tmp`
+
+### Erişim Yetkilerinin Görüntülenmesi
+
+```
+$ ls -l /etc/debian_version 
+-rw-r--r-- 1 root root 11 May  5  2013 /etc/debian_version
+```
+
+```
+$ ls -ld /etc/init.d
+drwxr-xr-x 2 root root 4096 Feb  2 22:36 /etc/init.d
+```
+
+|Karakter       |Anlam
+----------------|-----------
+|-          	|standart dosya (regular file)
+|d 		|dizin
+|c 		|karakter tabanlı aygıt dosyası (/dev/console vb.)
+|b 		|blok tabanlı aygıt dosyası (/dev/sda3 vb.)
+|s 		|özel dosya (unix domain soket vb.)
+
+
+### Erişim Yetkilerinin Düzenlenmesi
+
+|Karakter       |Etkilediği Grup
+----------------|-----------
+|u          	|Dosya/dizin sahibi
+|g 		|Dosya/dizin grup sahibi
+|o 		|Dosya/dizin sahibi ve grup sahibi dışında kalanlar (others)
+|a 		|Dosya/dizin sahibi, grup sahibi ve bunların dışında kalanlar dahil her üç blok
+
+
+### `chmod` Erişim Yetki Parametreleri
+
+
+|Karakter       |Anlam
+----------------|-----------
+|r          	|Okuma
+|w 		|Yazma
+|x 		|Çalıştırma
+|X 		|Sadece dizinler için çalıştırma yetkisi
+|s 		|Çalışma zamanında user id veya grup id değişimi (suid bit)
+|S          	|Suid biti aktif fakat çalıştırma yetkisi yok
+|t 		|Sticky bit
+|u 		|Dosyanın kullanıcı (user) olarak sahibinin yetkileri
+|g 		|Dosyanın grup sahibi yetkileri
+|o 		|Dosya ile ilgili diğer (other) kullanıcıların yetkileri
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
