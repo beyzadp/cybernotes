@@ -1,2 +1,102 @@
 # LINUX FUNCTION HOOKING
 
+## What Are Shared Libraries?
+
+Paylaşılan kitaplıklar, yürütülebilir bir dosya üretmenin son adımlarında bağlanan önceden derlenmiş C kodudur.  Daha sonra kendi kodunuzu yazarken kullanılabilecek işlevler, rutinler, sınıflar, veri yapıları vb. gibi yeniden kullanılabilir özellikler sağlarlar.
+
+
+Linux'un İçerdiği Ortak Paylaşılan Kitaplıklar şunlardır:
+
+- libc : The standard C library.
+- glibc : GNU Implementation of standard libc.
+- libcurl : Multiprotocol file transfer library.
+- libcrypt : C Library to facilitate encryption, hashing, encoding etc.
+
+Paylaşılan kitaplıklar hakkında bilinmesi gereken en önemli şey, programların çalışma süresi boyunca ihtiyaç duyduğu çeşitli işlevlerin adreslerini içermeleridir.
+
+
+Örneğin, dinamik olarak bağlı bir yürütülebilir dosya bir read() sistem çağrısı verdiğinde, sistem libc paylaşımlı kitaplığından read() adresini arar. Artık libc'nin read() için işlev parametrelerinin sayısını ve türünü belirten ve karşılığında belirli bir veri türü bekleyen iyi tanımlanmış bir tanımı vardır. Genellikle sistem bu işlevleri nerede arayacağını bilir, ancak sistemin bu işlevleri nerede arayacağını ve bunları kötü amaçlar için nasıl kullanabileceğimizi kontrol edebiliriz.
+
+
+TL;DR: Paylaşılan Kitaplıklar, daha sonra belirli işlevleri gerçekleştirmek için çağrılabilen işlev tanımlarını içeren derlenmiş C kodudur.  Dinamik olarak bağlantılı yürütülebilir dosyaları çalıştırdığımızda, sistem bu kitaplıklardaki ortak işlevlerin tanımlarını arar.
+
+> Linuxta dinamik baglayici/yukleyicinin adi nedir? *ld.so, ld-linux.so*
+
+
+
+## Getting A Tad Bit Technical 
+
+Oncelikle, ls komutu icin gerekli olan dinamik olarak linklenmis kutuphanelere bakalim. Bunun icin terminale su yazilabilir:
+
+```
+ldd `which ls`
+```
+
+ya da fish shell kullaniliyorsa:
+
+``` 
+ldd (which ls)
+```
+
+cikan sonuc:
+
+```
+# ldd /bin/ls        
+         linux-gate.so.1 (0xb7f54000)        
+         libselinux.so.1 => /lib/i386-linux-gnu/libselinux.so.1 (0xb7ed7000)        
+         libc.so.6 => /lib/i386-linux-gnu/libc.so.6 (0xb7cf9000)         
+         libdl.so.2 => /lib/i386-linux-gnu/libdl.so.2 (0xb7cf3000)
+         libpcre.so.3 => /lib/i386-linux-gnu/libpcre.so.3 (0xb7c7a000)
+         /lib/ld-linux.so.2 (0xb7f56000)
+         libpthread.so.0 => /lib/i386-linux-gnu/libpthread.so.0 (0xb7c59000)
+
+```
+
+<sub> *bu cikti x86 kali'den alinmistir. 64 bitlik bir sistemde farkli kutuphaneler olabilir.* </sub>
+
+Bu ciktida `libc.so.6` isimli ve `/lib/i386-linux-gnu/libc.so.6` konumunda bir kutuphane buluyoruz.
+*Not: Bunlar, sistemde başka bir yerde bulunan gerçek paylaşılan kitaplık dosyalarına yalnızca sembolik bağlantılardır.*
+
+
+Man page'de sunlari bulabiliriz:
+
+- *Using the directories specified in the DT_RPATH dynamic section attribute of the binary if  present  and  DT_RUNPATH  attribute does not exist.  Use of DT_RPATH is deprecated.*
+- *Using the environment variable LD_LIBRARY_PATH, unless the executable is being run in secure-execution mode (see  below),  in which case this variable is ignored.*
+- *Using  the directories specified in the DT_RUNPATH dynamic section attribute of the binary if present.  Such directories  are searched  only to find those objects required by DT_NEEDED (direct dependencies) entries and do not apply to  those  objects' children,  which  must themselves have their own DT_RUNPATH entries.  This is unlike DT_RPATH, which is applied  to  searches  for all children in the dependency tree.*
+- *From the cache file /etc/ld.so.cache, which contains a compiled list of candidate shared objects previously found in  the  augmented  library  path.  If, however, the binary was linked with the -z nodeflib linker option, shared objects in the default paths are skipped.  Shared objects installed in hardware capability directories (see below) are preferred to other  shared objects.*
+- *In  the  default path /lib, and then /usr/lib.  (On some 64-bit   architectures, the default paths for 64-bit shared objects  are /lib64,  and  then  /usr/lib64.)  If the binary was linked with the -z nodeflib linker option, this step is skipped.*
+
+Bu yazilar arasinda onemli olan uc nokta var. Bunlar:
+
+- The LD_PRELOAD environment variable.
+- The --preload command-line option when invoking the dynamic linker directly.
+- The /etc/ld.so.preload file.
+
+Diger paylasilan kitapliklardan **ONCE** yuklenen kendi paylasilan nesnelerimizi belirtmemize izin verdigi icin 1 ve 3 noktalariyla daha cok ilgileniyoruz ve benzer PATH saldirilarina cok benzer sekilde bunlari acik olarak kullanip somurecegiz.
+
+>  What environment variable let's you load your own shared library before all others? *LD_PRELOAD*
+>  Which file contains a whitespace-seperated list of ELF shared objects to be loaded before running a program? */etc/ld.so.preload*
+> If both the environment variable and the file are employed, the libraries specified by which would be loaded first? *environment variable*
+
+
+
+## Putting On Our Coding Hats
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
