@@ -137,30 +137,67 @@ Simdi sira kodun aciklamasinda:
 - Son olarak, orijinal `write()` islevinin konumunu daha once olusturdugumuz islev isaretcisine kaydediyoruz. Standart paylasilan kitapliklardan (RTLD_NEXT olarak belirtildigi gibi) bir sonraki yazma isleminin adresini almak icin dlsym islevini kullaniriz. 
 
 
+Suana kadarki adimlar standartti. Asagida belirttiklerim farkli hooklar icin de neler olabilecegidir.:
+
+- *Now we have some fun. Here, we compare the string buffer passed to the function to see if it equals "Hello World". If it does, we call  the original write() function using the function pointer but replace it with our own string and store the result returned. You can do anything you feel like : generate logs, trigger other conditions, create connections if certain conditions are met and so on. Feel free to play around this part!*
+- *If the conditions aren't met, however, we simply pass all the parameters to the original function via our function pointer, and store the result.(
+- *We finally return the result to the calling function.(
 
 
+## Let's Gooooooooooooooo
 
+Simdi sirada kitapligi derleyip calistirip neler oldugunu gorme vakti.
 
+### Compiling Our Program
 
+`gcc -ldl malicious.c -fPIC -shared -D_GNU_SOURCE -o malicious.so `
 
+*Not: eger symbol lookup error alirsan sunu dene:*
 
+`gcc malicious.c -fPIC -shared -D_GNU_SOURCE -o malicious.so -ldl`
 
+Simdi kodu anlayalim:
 
+- gcc: gcc
+- -ldl: dinamik baglanti kitapligi olarak da bilinen libdl'ye karsi baglanti
+- malicious.c: malicious.c
+- -fPIC: konumdan bagimsiz kod olustur (daha genis aciklama [burada](https://stackoverflow.com/questions/966960/what-does-fpic-mean-when-building-a-shared-library))
+- -shared: compiler'a yürütülebilir bir dosya oluşturmak için diğer nesnelerle bağlantılı olabilecek Shared Object olusturmasini soyler.
+- -D_GNU_SOURCE:  RTLD_NEXT sıralamasını kullanmamıza izin veren #ifdef koşullarını karşılamak için belirtilmiştir. İsteğe bağlı olarak bu flag #define _GNU_SOURCE eklenerek değiştirilebilir.
+- -o: -o
+- -malicious.so: malicious.so
 
+Simdi malicious.so dosyasini olusturdugumuza gore sirada ne var ona bakalim.
 
+### Pre-Loading Our Shared Object
 
+Artık Paylaşılan Nesne dosyamız hazır olduğuna göre, işlevimizi başarılı bir şekilde bağlamak için onu diğer paylaşılan kitaplık nesnelerinden önce önceden yüklememiz gerekiyor. Bunu yapmak için iki yöntemimiz var:
 
+- `LD_PRELOAD` kullanmak:
 
+`export LD_PRELOAD=$(pwd)/malicious.so`
 
+- `/etc/ld.so.preload` dosyasini kullanmak:
 
+`sudo sh -c "echo $(pwd)/malicious.so > /etc/ld.so.preload"`
 
+su bicim olmus mu kontrol edebilirsin:
 
+```
+$ ldd /bin/ls
+     linux-gate.so.1 (0xb7fc0000)
+     /home/whokilleddb/malicious.so  (0xb7f8f000)
+     libselinux.so.1 => /lib/i386-linux-gnu/libselinux.so.1 (0xb7f43000)
+     libc.so.6 => /lib/i386-linux-gnu/libc.so.6 (0xb7d65000)
+     lbdl.so.2 => /lib/i386-linux-gnu/libdl.so.2 (0xb7d5f000)
+     libpcre.so.3 => /lib/i386-linux-gnu/libpcre.so.3 (0xb7ce6000)
+     /lib/ld-linux.so.2 (0xb7fc2000)
+     libpthread.so.0 => /lib/i386-linux-gnu/libpthread.so.0 (0xb7cc5000)
+```
 
+Şimdi senaryo şuna benzer: Program, tüm parametreler yerindeyken write() işlevine bir çağrı yapar. Bununla birlikte, `write()` öğesinin libc tanımına gitmek yerine, dinamik bağlayıcı `write()` öğesinin İLK OLUŞUMUNU bulduğundan ve işini yapmasına izin verdiğinden, bizim durumumuzda basit bir karşılaştırma işlemi olan, kötü amaçlı paylaşılan nesnemize gider. true ise, kötü amaçlı/kurcalanmış çıktıyı döndürür, aksi takdirde parametreleri libc içindeki gerçek işleve aktarır ve elde edilen çıktıyı programa geri iletir.
 
+PATH Hijacking yontemine fazlasiyla benziyor.
 
-
-
-
-
-
+Su dakikadan sonra ne zaman `write()` cagirmak istersek (ornegin pythondaki `print()` ya da c'deki `printf()` yazmak istedigimiz sey yerine daha onceden belirledigimiz `Hacked 1337` yazisini goruruz. 
 
