@@ -102,6 +102,54 @@ Normal şartlar altında, dinamik bağlayıcı karşılaştığında `write()` i
 
 Simdi bunu somurme vakti.
 
+man page'den `write()` fonksiyonu tanimini ssize_t `write(int fd, const void *buf, size_t count);` olarak `ssize_t` return tipi ile aliyoruz. 
+
+Zararli fonksiyonumuzun da hook'lamaya calistigimiz orijinal fonksiyonla ayni fonksiyon tanimina ve donus tipine sahip olmasi cok onemlidir. Simdi kendi kotu amacli paylasilan kitapligimizi yazmaya baslayabiliriz:
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <string.h>
+ssize_t write(int fildes, const void *buf, size_t nbytes)
+{
+     ssize_t (*new_write)(int fildes, const void *buf, size_t nbytes); 
+     ssize_t result;
+     new_write = dlsym(RTLD_NEXT, "write");
+     if (strncmp(buf, "Hello World",strlen("Hello World")) == 0)
+     {
+          result = new_write(fildes, "Hacked 1337", strlen("Hacked 1337"));
+     }
+     else
+     {
+          result = new_write(fildes, buf, nbytes);
+     }
+     return result;
+}
+```
+
+Simdi sira kodun aciklamasinda:
+
+- Ilk olarak gerekli header files'lari ekliyoruz. 
+- Daha sonra hooklamaya calistigimiz fonksiyonla tamamen ayni fonksiyon tanimina ve donus turune sahip bir fonksiyon olusturmamiz gerekiyor. bunun nedeni, fonksiyonu cagiran programlarin br dizi parametre gondermesi ve karsiliginda belirli bir cikti turu beklemesi ve hatalara neden olmasidir.
+- Daha sonra cok onemli bir sey yapiyoruz. `new_write` isimli, daha sonra write adresinin yerine gececek `write()` fonksiyonunun yerine bir fonksiyon olusturuyoruz.
+- Ayrica donus degerini toplamak icin `result` isimli bir value olusturuyoruz. 
+- Son olarak, orijinal `write()` islevinin konumunu daha once olusturdugumuz islev isaretcisine kaydediyoruz. Standart paylasilan kitapliklardan (RTLD_NEXT olarak belirtildigi gibi) bir sonraki yazma isleminin adresini almak icin dlsym islevini kullaniriz. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
