@@ -372,6 +372,44 @@ $ cat /proc/sys/fs/file-max
 400000
 ```
 
+##IO Modelleri
+
+
+|IO Modeli      	|Blocking  		| Non-Blocking
+------------------------|-----------------------|---------------
+|senkron          	|Read/Write		| Read/Write (O_NONBLOCK)
+|asenkron 		|Multiplex IO (select/poll)|AIO
+
+Linux platformunda IO işlemlerini ihtiyaç duyulan senaryo doğrultusundan verimli şekilde yapabilmek için IO modellerinin sunduğu imkanların incelenmesi gerekir.
+
+##Senkron IO
+
+IO işlemlerinde ilk seçeneğimiz senkron - Blocking IO modelidir. Bu modelde bir process IO talebinde bulunduğunda, işlem tamamlanana kadar ilgili process bloklanır. Linux çekirdeği bu durumda IO bekleme sürecinde bloklanan process'den CPU kaynağını geri alarak, uygun başka bir process'e tahsis eder. IO işlemi tamamlana kadar IO Wait durumunda bloklanan process'e bir daha asla CPU kaynağı tahsis edilmez. Böylelikle IO beklemelerinin sistemin geri kalanına etkisi minimum olur.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
