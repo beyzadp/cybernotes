@@ -110,7 +110,7 @@ Paylaşımlı kütüphaneler kullanan uygulamaların çalıştırılması sıras
 	/lib64/ld-linux-x86-64.so.2 (0x00007f0c6fa7a000)
 ```
 
-`Görüldüğü üzere `libc` ve `ld.so` bağımlılıkları listelendi. Fakat `linux-vdso.so.1` kütüphanesi nedir?`
+Görüldüğü üzere `libc` ve `ld.so` bağımlılıkları listelendi. Fakat `linux-vdso.so.1` kütüphanesi nedir?
 
 ### Virtual DSO: linux-vdso.so.1
 
