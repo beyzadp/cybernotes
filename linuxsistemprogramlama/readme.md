@@ -382,30 +382,124 @@ $ cat /proc/sys/fs/file-max
 
 Linux platformunda IO işlemlerini ihtiyaç duyulan senaryo doğrultusundan verimli şekilde yapabilmek için IO modellerinin sunduğu imkanların incelenmesi gerekir.
 
-##Senkron IO
+## Senkron IO
+
+### Senkron Blocking
 
 IO işlemlerinde ilk seçeneğimiz senkron - Blocking IO modelidir. Bu modelde bir process IO talebinde bulunduğunda, işlem tamamlanana kadar ilgili process bloklanır. Linux çekirdeği bu durumda IO bekleme sürecinde bloklanan process'den CPU kaynağını geri alarak, uygun başka bir process'e tahsis eder. IO işlemi tamamlana kadar IO Wait durumunda bloklanan process'e bir daha asla CPU kaynağı tahsis edilmez. Böylelikle IO beklemelerinin sistemin geri kalanına etkisi minimum olur.
 
 ![text](./sync-io.png)
 
+Tipik bir örnek verecek olursak, bir process read() fonksiyonuyla sistemden veri talebinde bulunduğunda ilgili sistem çağrısıyla kullanıcı kipinden kernel kipine context switch gerçekleştirilir ve sistem çağrısı tamamlanana kadar bloklanır. Çağrı tamamlandığında (okunan veri kullanıcı kipinde erişilebilecek bir tampona kopyalandığında veya herhangi bir hata oluştuğunda) ilgili process çalışmaya kaldığı yerden devam eder.
+
+Bu geleneksel modelde her tür IO işlemi uygulamayı blokladığından, aynı anda uygulamada farklı işlemlerin yapılması gerekiyorsa thread kullanımı gerekecektir. Örnek olarak aynı anda 2 seri portu ve 20 farklı TCP soketini dinleyen bir uygulama yapmak istiyorsak, sadece IO işlemleri için toplamda 22 farklı thread kullanmamız gerekecektir. Aksi takdirde herhangi birinde IO nedeniyle karşılaşacağımız bloklanma nedeniyle, diğerlerinde veri gelmiş olsa dahi verinin işlenememesine, dolayısıyla uygulamanın toplamda olması gerekenden yavaş ve verimsiz çalışmasına yol açacaktır.
+
+### Senkron Non-Blocking
+
+Senkron IO işleminin diğer bir varyasyonu, Non/Blocking IO modelidir.
+
+Bu modelde IO işlemi yapılacak aygıt `O_NONBLOCK` bayrağı ile Non/Blocking modda açılır. IO kaynağı bu durumda iken herhangi bir `read()` işlemi yapıldığında bloklanmak yerine, verinin varsa hazır olan kısmı kernel kipininden kullanıcı kipindeki tampon alanına kopyalanır, veri henüz hazır değilse `EWOULDBLOCK` hatası döner, sistem çağrısı başka bir sinyal vb. yüzünden kesintiye uğramışsa da standart EAGAIN hatası ile döner. Böylelikle her halikarda bloklanmaksızın `read()` işlemi gerçeklenmiş olur.
+
+![text](./sync-nb.png)
+
+
+Non/Blocking IO modelinde ihtiyaç duyduğumuz veriye tek seferde ulaşamayız. Bloklanmıyor olmanın negatif yönü, parça parça elde edeceğimiz verileri bir döngü ile tamamlanana kadar okumak zorunda oluşumuzdur. Bu aynı zamanda kod karmaşıklığını da artıracaktır. Ancak bloklanılmadığı için, verinin tamamını okumak amacıyla kurulan döngüde sadece okuma işlemi değil, diğer başka kontrol ve işlemlerin de yapılması mümkün olacaktır.
+
+Benzer bir süreç yazma `write()` fonksiyonları için de geçerlidir.
+
+Bu modelin asıl dezavantajı kod karmaşıklığını artırmasından ziyade, daha fazla sistem çağrısı gerektiriyor olmasıdır. Aynı işlem bloklanan bir modelde olsa idi tek bir sistem çağrısı ile yapılabilecekken, Non/Blocking IO modelinde bir döngü içerisinde tamamlana kadar, belirsiz sayıda sistem çağrısı yapılmak zorunda kalınmaktadır. Sistem çağrılarının genel maliyeti ve kullanıcı kipi -> kernel kipi context switch'lerinin sürekli yapılıyor olması sistem performansını önemli ölçüde düşürecektir.
+
+Non/Blocking IO modu standart dosyalar üzerinde pek fazla anlam taşımaz. Asıl olarak soket işlemleri, FIFO ve pipe kullanımı, terminal, seri port vb. gibi aygıtlardan okuma ve yazmalarda kullanımı anlamlıdır.
+
+Standart bir dosyayı Non/Blocking modda `O_NONBLOCK` bayrağı ile açsanız dahi, gerçekte değişen hiç bir şey olmaz. Linux tüm bu tarz dosya işlemlerini tampon kullanarak buffered biçimde gerçekleştirir. Herhangi bir yazma işlemi yapıldığında kullanıcı kipinden alınan veri doğrudan depolama birimine yazılmak yerine, kernel tarafından tutulan page cache tablolarına yazılır. Bu şekilde write çağrıları çok daha hızlı dönecektir. Ancak page cache tablolarında yer kalmadığında, yenilerini açmak için yapılan işlemler nedeniyle `write()` çağrıları uygulamayı bloklar (standart bir dosya Non/Blocking modda açılmış olsa dahi)
+
+Benzer şekilde standart bir dosya bu modda okunmaya çalışıldığında kernel tarafından veriler disk üzerinden page cache içerisine alınır ve buradan kullanıcı kipine kopyalanır. Hatta özellikle sıralı erişim yapılan dosyalarda kernel, uygulama henüz talep etmeden, daha önden giderek o anki dosya ofsetinden ileriye doğru okuma yapıp page cache tabloları içerisine veri okumaya devam eder. Bu işlem `read-ahead` modu olarak da adlandırılır. Böylece uygulama katmanında sonradan yapılacak `read()` işlemleri doğrudan page cache içerisinden karşılanabilmektedir. İstenen verinin cache'te olmaması durumunda verinin diskten okunup getirilmesi için gereken süre zarfında `read()` fonksiyonu da bloklanacaktır.
+
+## Sinyaller
+
+Sinyal mekanizması, sistemde yeni bir olay (event) oluştuğunda çalışan uygulamaların asenkron biçimde haberdar edilebilmesine olanak verir.
+
+Sinyaller 3 temel durumda oluşturulur:
+
+- Donanım tarafında istisnai bir durum oluştuğunda sinyal üretilir. Örnek olarak uygulamanın kendi izin verilen adres alanının dışındaki bir bölgeye erişmeye çalışması (Segmentation Fault), sıfıra bölme işlemi içeren bir makine kodu üretilmesi vb. gösterilebilir.
+- Kullanıcı tarafından konsolda CTRL-C veya CTRL-Z gibi tuş kombinasyonlarının kullanımı, konsol ekranının yeniden boyutlandırılması ya da kill uygulaması ile sinyal gönderim isteğinin oluşturulması
+- Uygulama içerisinde kurulan bir timer'ın dolması, uygulamaya verilen CPU limitinin aşılması, açık bir file descriptor'e veri gelmesi vb.
+
+### Sinyal Numaraları
+
+Sinyaller sistemde 1'den başlamak suretiyle nümerik değerlerle gösterilirler.
+
+Örnek olarak 1 nolu sinyal, hemen her sistemde HUP sinyali olarak değerlendirilirken 9 nolu sinyal de KILL sinyali olarak bilinir.
+
+Linux sistemlerdeki sinyal numaralarını uygulama kodunuzda doğrudan include etmeniz gerekmeyen /usr/include/asm-generic/signal.h dosyasında bulabilirsiniz.
+
+
+### Sinyal Üretimi ve Gönderimi
+
+Sinyal üretimi, bir olay nedeniyle gerçekleşir. Ancak sinyalin ilgili uygulamaya gönderilmesi (deliver) işlemi, sinyalin üretimi ile aynı anda olmaz.
+
+Sinyalin uygulamaya gönderilebilmesi için uygulamanın o an CPU kaynağına sahip ve Running durumda çalışıyor olması gereklidir. Dolayısıyla belirli bir uygulamaya gönderilmek üzere üretilen bir sinyalin gönderimi, ilgili uygulamanın context-switch sonrası tekrar çalışmaya başlamasıyla birlikte gerçekleşir.
+
+
+### Bekleyen (Pending) Sinyal Kavramı
+
+Sinyalin üretim anından gönderilme işlemi gerçekleşene kadarki süre zarfında, sinyaller pending olarak işaretlenir ve beklemede tutulur.
+
+Bir process için bekleme durumundaki sinyal sayısı ve izin verilen pending sinyal sayısına, proc dosya sisteminden ilgili process id (PID) dizini altındaki /proc/PID/status dosyasında SigQ: 2/15235 örneğindeki gibi erişilebilir.
 
 
 
+### Sinyal Maskeleri ve Bloklama
+
+Sinyallerin asenkron doğası nedeniyle uygulama tarafından ne zaman geleceğinin öngörülemez olması, uygulamada kritik bir işlem yapılıyorken kesintiye uğrama riskini de beraberinde getirir.
+
+Bu şekildeki istenmeyen durumların önüne geçebilmek için sinyal maskeleri kullanarak kritik bir işlem öncesi bazı sinyalleri bloklama, kritik olan kısım tamamlandıktan sonra da tanımlanmış blokları kaldırma imkanı sağlanmıştır. Bu işlem uygulama geliştiricinin sorumluluğundadır.
+
+Uygulama tarafından bir sinyal bloklandığında, blok kaldırılana kadar üretilen aynı tipteki diğer sinyaller bekleme (pending) durumunu korur. Uygulamada blok kaldırıldığın anda bekleyen sinyallerin gönderimi de sağlanır.
+
+Bu şekilde blok anında beklemeye geçen sinyallerden aynı tipte olanlar, normal kullanımda blok kaldırıldıktan sonra uygulamaya sadece 1 defa gönderilir. Realtime sinyallerde ise durum farklıdır.
+
+
+Sinyal Türleri
+
+Sinyal türlerine göre öntanımlı eylemler değişkenlik gösterebilmektedir. Eğer uygulama içerisinde ilgili sinyali karşılayan bir signal handler fonksiyonu tanımlanmamış ise, öntanımlı eylem gerçekleşecektir. Bu bazen uygulamanın sonlandırılması bazen de sinyalin gözardı edilmesi anlamına gelir.
+
+Bazı sinyallerin ise uygulama katmanında yakalanması mümkün değildir, bu tarz sinyaller her zaman öntanımlı eylemi gerçekleştirirler (KILL sinyali gibi).
+
+Uygulamanın sonlanmasına yol açan bazı eylemlerde ek olarak core dump dosyası da üretilir. Core dump dosyaları, ilgili process'in sanal bellek tablosunun diske yazılması suretiyle, sonraki aşamalarda debug araçları ile process'in sonlanmadan önceki durum bilgisinin incelenebilmesi amacıyla oluşturulur.
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
+|Sinyal 	|No 	|Öntanımlı Eylem 	|Yakalanabilir mi?
+|---------------|-------|-----------------------|-----------------
+|SIGHUP 	|1 	|Uygulamayı sonlandır 	|Evet
+|SIGINT 	|2 	|Uygulamayı sonlandır 	|Evet
+|SIGQUIT 	|3 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGILL 	|4 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGTRAP 	|5 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGABRT 	|6 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGFPE 	|8 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGKILL 	|9 	|Uygulamayı sonlandır 	|Hayır
+|SIGBUS 	|10 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGSEGV 	|11 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGSYS 	|12 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGPIPE 	|13 	|Uygulamayı sonlandır 	|Evet
+|SIGALRM 	|14 	|Uygulamayı sonlandır 	|Evet
+|SIGTERM 	|15 	|Uygulamayı sonlandır 	|Evet
+|SIGUSR1 	|16 	|Uygulamayı sonlandır 	|Evet
+|SIGUSR2 	|17 	|Uygulamayı sonlandır 	|Evet
+|SIGCHLD 	|18 	|Yoksay 	|Evet
+|SIGTSTP 	|20 	|Durdur 	|Evet
+|SIGURG 	|21 	|Yoksay 	|Evet
+|SIGPOLL 	|22 	|Uygulamayı sonlandır 	|Evet
+|SIGSTOP 	|23 	|Durdur 	|Hayır
+|SIGCONT 	|25 	|Durdurulmuşsa sürdür 	|Evet
+|SIGTTIN 	|26 	|Durdur 	|Evet
+|SIGTTOU 	|27 	|Durdur 	|Evet
+|SIGVTALRM 	|28 	|Uygulamayı sonlandır 	|Evet
+|SIGPROF 	|29 	|Uygulamayı sonlandır 	|Evet
+|SIGXCPU 	|30 	|Uygulamayı sonlandır (core dump) 	|Evet
+|SIGXFSZ 	|31 	|Uygulamayı sonlandır (core dump) 	|Evet
 
 
 
