@@ -502,8 +502,22 @@ Uygulamanın sonlanmasına yol açan bazı eylemlerde ek olarak core dump dosyas
 |SIGXFSZ 	|31 	|Uygulamayı sonlandır (core dump) 	|Evet
 
 
+### Sinyal Gönderme
 
 
+Uygulama içerisinden sinyal göndermek için prototipi aşağıda belirtilen `kill` fonksiyonu kullanılır:
+
+```c
+int kill(pid_t pid, int sig);
+```
+
+Fonksiyon basitçe parametre olarak verilmiş olan PID değerine sahip uygulamaya istenen sinyalin gönderimini sağlamaktadır. İşlemin gerçekleşebilmesi için ilgili uygulamaya sinyal gönderebilme yetkisinin olması gerekir. Örnek olarak A kullanıcısı B kullanıcısının uygulamalarına sinyal gönderemez, ancak kendi sahip olduğu uygulamalara sinyal gönderebilir.
+
+Sistemdeki **root** kullanıcısı veya Linux Capabilities API üzerinden `CAP_KILL` kabiliyetine sahip olan uygulamalar ise herhangi bir uygulamaya sinyal gönderebilirler.
+
+>Uygulama dışından genel amaçlı sinyal gönderme işlemleri için kill komutunu kullanabilirsiniz.
+
+Uygulama içerisinden bir başka uygulama yerine, çalışan uygulamanın kendisine sinyal gönderilmek istendiğinde raise ve abort fonksiyonları kullanılır.
 
 
 
