@@ -1040,4 +1040,4 @@ Görüldüğü üzere doğrudan spinlock kullandığımız versiyona oranla bira
 
 
 
-> **bu yazi tryhackme'deki [linux function hooking](https://tryhackme.com/room/linuxfunctionhooking) odasindan cevrilmistir.**
+> **bu yazi [linux sistem programlama](https://demirten.gitbooks.io/linux-sistem-programlama/content/fs/) kitabindan yorumlanmistir ve alinti cumleler barindirmaktadir.**
