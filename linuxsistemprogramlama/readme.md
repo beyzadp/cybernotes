@@ -1040,5 +1040,4 @@ Görüldüğü üzere doğrudan spinlock kullandığımız versiyona oranla bira
 
 
 
-
-
+> **bu yazi tryhackme'deki [linux function hooking](https://tryhackme.com/room/linuxfunctionhooking) odasindan cevrilmistir.**
