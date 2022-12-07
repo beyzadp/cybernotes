@@ -992,10 +992,46 @@ int main (int argc, char *argv[])
 }
 ```
 
+Şimdi normal mutex ve spinlock versiyonlarını derleyelim:
+
+```
+$ gcc -o locktest_normal locktest.c -lrt -lpthread
+$ gcc -DUSE_SPINLOCK -o locktest_spinlock locktest.c -lrt -lpthread
+```
+Her iki uygulamayı 100 milyon loop için aşağıdaki gibi çalıştırdığımızda performans farklılıklarını görebiliriz:
+
+```
+$ ./locktest_normal 100000000
+debug: Elapsed time with 100000000 loops: 19.487106 (main locktest.c:120)
+
+$ ./locktest_spinlock 100000000
+debug: Elapsed time with 100000000 loops: 8.115992 (main locktest.c:120)
+```
+
+Testleri bir kaç defa daha üstüste çalıştırdığımızda bir miktar değişiklikler görebiliriz ancak normal mutex versiyonu, spinlock kullanan versiyondan en az 2 kat daha yavaş çalışmaktadır.
 
 
+### Hibrid Yaklaşım
 
+Bu senaryo için spinlock'un daha iyi olduğunu gördük. Bir çok senaryo için de mutex kullanımının toplam sistem performansı için daha olumlu olacağını söyledik.
 
+POSIX standardında her iki yaklaşımı birden kullanan hibrid bir modele de yer verilmiş olup Linux NPTL implementasyonunda böyle bir kullanım da desteklenmektedir.
+
+Hibrid modelde mutex lock işlemi önce spinlock kullanılarak (try_lock mekanizmalarıyla) maksimum N defa denenenir (bu değerin hesaplaması glibc içerisinde mevcuttur). Ardından spinlock ile elde edilemiyorsa bu defa geleneksel mutex lock modeline geri dönülür.
+
+Elbette hibrit modelin de tüm senaryolara uygulanabileceğini söylemek doğru olmaz. Spinlock kullanım avantajlarını hiç üretemeyen bir yazılım akışınız var ise, hibrid mod da performans kaybına yol açacaktır.
+
+Hibrid modun kullanılabilmesi için, mutex initialize işleminde `PTHREAD_MUTEX_ADAPTIVE_NP` tipinin seçilmiş olması gereklidir.
+
+Yukarıdaki örnek uygulamamızın `-DUSE_HYBRID` parametresiyle üçüncü bir versiyonunu derleyip test edelim:
+
+```
+$ gcc -DUSE_HYBRID -o locktest_hybrid locktest.c -lrt -lpthread 
+$ ./locktest_hybrid 100000000
+debug: Elapsed time with 100000000 loops: 11.823482 (main locktest.c:120)
+```
+
+Görüldüğü üzere doğrudan spinlock kullandığımız versiyona oranla biraz daha kötü ama ona çok yakın bir değer elde etmiş olduk.
 
 
 
