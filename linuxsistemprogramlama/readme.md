@@ -789,15 +789,208 @@ int main(void) {
 ```
 
 
+## Mutex Kullanımı
+
+pthread kütüphanesi **mutual exclusive** kilit mekanizmalarını **pthread_mutex** fonksiyonları ile yönetir.
+
+Mutex tanımı ve ilklendirmesi şu şekilde yapılır:
+
+```
+pthread_mutex_t control_mutex = PTHREAD_MUTEX_INITIALIZER;
+```
+
+Çalışma zamanında oluşturup sonradan ilklendirmek için:
+
+```
+    pthread_mutex_t control_mutex;
+    ...
+    pthread_mutex_init(&control_mutex, NULL);
+    ...
+    pthread_mutex_destroy(&control_mutex);
+```
+
+`pthread_mutex_init`'in ikinci argümanı pthread_mutexattr_ ailesi fonksiyonlarla mutex spesifik özelliklerle doldurulabilinir.
+
+Mutex'i ele almaya çalışalım:
+
+```
+pthread_mutex_lock(&control_mutex);
+```
+
+Eğer mutex o an başka bir thread tarafından alınmış ise, mutex tipine göre aşağıdaki 3 durumdan biri gerçekleşir:
+
+- Fonksiyon mutex'i elde edene kadar bekler (öntanımlı durum)
+- Fonksiyon **-EDEADLK** hatasıyla döner
+- Fonksiyon başarılı bir şekilde döner (recursive mutex kullanımı)
+
+Mutex'i serbest bırakmak için:
+
+```
+pthread_mutex_unlock(&control_mutex);
+```
 
 
+## SpinLock & Mutex Karşılaştırması
 
 
+Mutex kullanımlarının performans problemi yaratabileceği senaryolar mevcuttur.
+
+Örnek olarak A ve B thread'lerinin bir mutex kaynağını kilitleyip, çok hızlı biçimde işlemi gerçekleştirip kilidi kaldırdığını, bu işlemi de saniyede binlerce veya yüzbinlerce defa yaptığını düşünelim.
+
+Mutex operasyonları `context-switch` gerektirdiğinden kilitli kalma süresi çok az olsa da bir yerden sonra her bir kilitleme işleminde thread'in Sleep durumuna geçmesi sonra tekrar uyandırılması sürecinin kendisi zaman alıcı bir işleme dönüşür.
+
+Böyle bir durumda mutex kullanmak yerine spinlock kullanımı daha avantajlı olur.
+
+Spinlock kullanıcı kipinde busy wait ile gerçekleştirilir. Dolayısıyla ilgili thread Sleep moduna geçmez, `context-switch` gerçekleşmez ve kullanıcı kipinde kendisine tahsis edilen cpu zamanını sonuna kadar kullanabilmiş olur.
+
+Ancak eğer ilgili uygulama cpu kullanmaya devam ederek beklediği spinlock'a çok hızlı bir şekilde erişemez ise bu defa tersi bir etki yaratır ve Sleep moduna geçmesi halinde aynı zaman diliminde CPU ile başka bir işlem yapılabilecekken, bu imkan ortadan kalkar ve CPU yükünün artmasına neden olur.
+
+Dolayısıyla spinlock kullanımının tüm senaryolarda daha iyi sonuç verecek olduğunu söylemek çok yanlış olur.
+
+Dahası spinlock kullanımı özellikle Linux mutex performansının çok iyileştirilmiş olmasından ötürü, pek çok senaryoda mutex kullanımının daha iyi sonuç vermesini sağlar. Emin değilseniz, risk almayın, mutex kullanın.
+
+Probleminizi iyi tanıdıysanız ve spinlock kullanımını iyice test ettiyseniz kullanabilirsiniz.
+
+Aşağıdaki örnek uygulama kodunu `locktest.c` adıyla kaydedin. Normal mutex versiyonunu ek bir parametre vermeden, Spinlock versiyonunu `-DUSE_SPINLOCK` parametresiyle aşağıdaki gibi derleyip 100 milyon loop parametresi ile çalıştırıp işlem süresini ölçün.
+
+Teste başlamadan önce Cpu Frequency Scaling aktif ise işlemci hızını aşağıdaki gibi maksimuma ayarlayıp, bu sebeple sonuçlarda oluşacak ek dalgalanmayı bertaraf etmeniz de önerilir (işlemin tüm cpu çekirdekleri için tekrar edilmesi gereklidir):
+
+```
+# echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+```
+
+```c
+/* locktest.c */
+#include <stdio.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/syscall.h>
+#include <errno.h>
+#include <sys/time.h>
+#include "../common/utlist.h"
+#include "../common/debug.h"
+
+#define DEFAULT_LOOP_COUNT 10000000
+
+struct list {
+    int no;
+    struct list *next;
+};
+
+struct timespec timespec_diff (struct timespec before, struct timespec after)
+{
+    struct timespec res;
+    if ((after.tv_nsec - before.tv_nsec) < 0) {
+        res.tv_sec    = after.tv_sec - before.tv_sec - 1;
+        res.tv_nsec    = 1000000000 + after.tv_nsec - before.tv_nsec;
+    } else {
+        res.tv_sec    = after.tv_sec - before.tv_sec;
+        res.tv_nsec    = after.tv_nsec - before.tv_nsec;
+    }
+    return res;
+}
 
 
+#ifdef USE_SPINLOCK
+pthread_spinlock_t spinlock;
+#else
+pthread_mutex_t mutex;
+#endif
 
+struct list *mylist;
 
+pid_t gettid() { return syscall( __NR_gettid ); }
 
+void *worker (void *args)
+{
+    (void) args;
+    struct list *tmp;
+
+    infof("Worker thread %lu started", (unsigned long )gettid());
+
+    while (1) {
+#ifdef USE_SPINLOCK
+        pthread_spin_lock(&spinlock);
+#else
+        pthread_mutex_lock(&mutex);
+#endif
+
+        if (mylist == NULL) {
+#ifdef USE_SPINLOCK
+            pthread_spin_unlock(&spinlock);
+#else
+            pthread_mutex_unlock(&mutex);
+#endif
+            break;
+        }
+        tmp = mylist;
+        LL_DELETE(mylist, tmp);
+
+#ifdef USE_SPINLOCK
+        pthread_spin_unlock(&spinlock);
+#else
+        pthread_mutex_unlock(&mutex);
+#endif
+    }
+
+    return NULL;
+}
+
+int main (int argc, char *argv[])
+{
+    int i;
+    int loop_count;
+    pthread_t thr1, thr2;
+    struct timespec before, after;
+    struct timespec result;
+    struct list *el;
+
+#ifdef USE_SPINLOCK
+    pthread_spin_init(&spinlock, 0);
+#elif USE_HYBRID
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ADAPTIVE_NP);
+#else
+    pthread_mutex_init(&mutex, NULL);
+#endif
+
+    if (argc == 2) {
+        loop_count = atoi(argv[1]);
+    } else {
+        loop_count = DEFAULT_LOOP_COUNT;
+    }
+    infof("Preparing list");
+    struct list *container = calloc(loop_count, sizeof(struct list));
+    for (i = 0; i < loop_count; i++) {
+        el = &container[i];
+        el->no = i;
+        LL_PREPEND(mylist, el);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &before);
+
+    pthread_create(&thr1, NULL, worker, NULL);
+    pthread_create(&thr2, NULL, worker, NULL);
+
+    pthread_join(thr1, NULL);
+    pthread_join(thr2, NULL);
+
+    clock_gettime(CLOCK_MONOTONIC, &after);
+
+    result = timespec_diff(before, after);
+    debugf("Elapsed time with %d loops: %li.%06li", loop_count, result.tv_sec,
+            result.tv_nsec / 1000);
+
+#ifdef USE_SPINLOCK
+    pthread_spin_destroy(&spinlock);
+#else
+    pthread_mutex_destroy(&mutex);
+#endif
+
+    return 0;
+}
+```
 
 
 
