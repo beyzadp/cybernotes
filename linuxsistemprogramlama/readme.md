@@ -519,6 +519,292 @@ Sistemdeki **root** kullanıcısı veya Linux Capabilities API üzerinden `CAP_K
 
 Uygulama içerisinden bir başka uygulama yerine, çalışan uygulamanın kendisine sinyal gönderilmek istendiğinde raise ve abort fonksiyonları kullanılır.
 
+## Signal-Safe Kavramı
+
+Unix türevi sistemlerde iyi uygulama yazmanın temel kurallarından biri signal safety ve thread safety kavramlarının anlaşılmasıdır.
+
+> Signal-Safe kavramı yoğunlukla Async-Signal-Safe biçiminde de ifade edilir.
+
+### Reentrancy
+
+Konuya geçmeden önce reentrant kod kavramını incelememizde fayda var. Bir fonksiyon eğer aynı anda birden fazla task içinden çağrılsa da içerde kullanılan/üretilen verilerde herhangi bir bozulmaya yol açmayacak şekilde dizayn edilmiş ise, reentrant olduğunu söyleyebiliriz.
+
+
+Dolayısıyla reentrant bir fonksiyonun karakteristik özelliklerini aşağıdaki gibi sıralayabiliriz:
+
+- Farklı çağrımlarında statik bir alan üzerinde değişiklik yapmaya çalışmaz
+- Sadece yerel değişkenler kullanır veya global bir değişken kullanımı zorunlu ise, yerel bir kopyasını çıkartarak işlemlerde yerel kopyasını kullanır
+- Geri dönüş değeri olarak asla herhangi bir statik alanın adresini dönmez
+- Fonksiyon içerisinden reentrant olmayan başka bir fonksiyon çağrılmaz
+
+Bir thread-safe fonksiyon ise aynı anda birden fazla thread içerisinden, paylaşımlı bir alan kullanılsa dahi güvenle çağrılabilir. Paylaşımlı alan kullanımı söz konusu ise, ilgili alana erişimin thread-safe fonksiyonlarda gerekli kilit mekanizmalarıyla sıralı halde yapılması garanti edilir.
+
+Bir fonksiyon eğer thread-safe ise aynı zamanda reentrant'dır.
+
+### Sinyal Kesmeleri
+
+Sinyaller donanım kesmelerine benzer şekilde yazılımın akışını bir anda kesip ayrı bir yere dallanma (sinyal işleyici fonksiyonu) sonra kaldığı yerden devam etme özelliğine sahiptir. Tek işlemcili ve tek bir thread ile çalışan uygulamalarda dahi, signal-safety önemli bir problemdir.
+
+Konunun daha iyi anlaşılması için görece zararsız örneklerden yola çıkalım. Örnek olarak uygulamanızın belirli bir bölümünde `printf` fonksiyonu ile konsola bir çıktı gönderdiğinizi varsayalım. Eğer printf fonksiyonu henüz çalışmasını bitirmemişken işlemin yarısında uygulamaya sinyal gelirse ve sinyalin işlendiği fonksiyon içerisinde de ayrı bir printf fonksiyonu çalışıyorsa, sinyalin işlemi tamamlanıp asıl uygulamaya geri dönülüp ilerlendiğinde konsoldaki çıktılar birbirine karışacaktır.
+
+Şimdi daha tehlikeli bir senaryoya göz atalım. Uygulamanızda `malloc()` ile heap alanından bir miktar bellek talep ettiğinizi düşünelim. İşlem henüz tamamlanmamışken bir sinyal ile kesintiye uğrar ve sinyal işleyici fonksiyonumuzda doğrudan veya dolaylı olarak `malloc()` fonksiyonunu çağırırsak ne olur?
+
+Malloc işlemi performans açısından uygulama içerisindeki allokasyonları bağlı liste yapıları ile tutar. Bu liste yapısı güncelleniyorken sinyal nedeniyle yeniden çağrılması kritik hatalara yol açabilecektir.
+
+Aşağıdaki kod parçacığını ve 64bit mimarideki karşılığını inceleyelim:
+
+```c
+int y;
+int x = 3;
+y = x * 15;
+```
+
+```
+/* derleyicinin ürettiği kod */
+movl    $3, -4(%rbp)
+movl    -4(%rbp), %edx
+movl    %edx, %eax
+sall    $4, %eax
+subl    %edx, %eax
+movl    %eax, -8(%rbp)
+```
+
+Yukarıdaki örnekte programcı açısından tek satırlık `y = x * 15` satırı işlemcide 5 adımda gerçekleştirilmektedir (sayı yazmaca yükleniyor, `sall` ile 4 bit kaydırılıp 16 ile çarpılmış oluyor, sonra elde edilen değerden başlangıçtaki sayı çıkartılıp 15 ile çarpım değerine ulaşılıyor). Bu 5 adımın herhangi birinde sinyal nedeni ile kesinti gerçekleşebilir. Dolayısıyla kaynak kod seviyesindeki tek satırlık basit bir işlem dahi çokça işlem adımına yol açıyor olabilir.
+
+### Sinyal Maskeleme
+
+Signal-safe olmayan fonksiyonların kullanımına yönelik 2 temel çözüm bulunur:
+
+- signal-safe olmayan fonksiyonların kullanıldığı bölümlerde sinyalleri maskelemek
+- sinyallerin işlendiği callback fonksiyonlarında signal-safe olmayan fonksiyonların kullanımından kaçınmak
+
+### Sinyal Kümeleri
+
+
+Sinyal kümeleri, sinyal bloklama gibi işlemlerde tek bir küme ile birden fazla sinyali gösterebilmek için kullanılır.
+
+Kümeler `glibc` içerisinde `sigset_t` tipiyle tutulur.
+
+Bir sinyal kümesini ilklendirmek için 2 yol bulunur:
+
+- `sigemptyset(sigset_t *set)` fonksiyonu ile hiç sinyal bulunmayan boş bir küme oluşturmak
+- `sigfillset(sigset_t *set)` fonksiyonu ile tüm sinyallerin dahil olduğu bir küme oluşturmak
+
+Sinyal kümeleri ile çalışırken mutlaka bu iki fonksiyondan biri kullanılarak kümenin ilklendirilmesi gerekir.
+
+Bir sinyal kümesine belirli bir sinyali eklemek için `sigaddset (sigset_t *set, int signum)` fonksiyonu kullanılır.
+
+Bir sinyal kümesinden belirli bir sinyali çıkarmak içinse `sigdelset (sigset_t *set, int signum` fonksiyonu kullanılmaktadır.
+
+Belirli bir sinyalin küme içindeki varlığını test etmek içinse `sigismember (const sigset_t *set, int signum)` fonksiyonu kullanılmaktadır.
+
+### Sinyal Bloklama
+
+Sinyalleri bloklama ihtiyacı temel olarak aşağıdaki 2 durumda ortaya çıkmaktadır:
+
+- Belirli bir sinyal işleyici fonksiyon içerisinde kritik bir işlem yapılıyorsa, farklı bir sinyal ile kesintiye uğramamak için
+- Uygulama içerisinde aynı zamanda sinyal işleyici fonksiyon üzerinden de değiştirilmesine izin verilen bir global değişkeni değiştiriyorsak, sinyal ile kesintiye uğramamak için
+
+> Not: İşletim sistemi sinyal nedeniyle ilgili uygulamadaki sinyal için tanımlı fonksiyonu çalıştırmayı başlatırken süreç tamamlanmadan aynı tipte gelen sinyallerde, sinyal işleyici fonksiyonu kesintiye uğratmaz. Ancak fonksiyon çalışmasına devam ederken farklı tipte bir sinyal gelirse, sinyal işleme fonksiyonu kesintiye uğrayacaktır.
+
+
+## Thread Kullanımı
+
+
+Linux altında thread kullanımı C kütüphanesinin bir parçası olan `pthread` kütüphanesi ile yapılmaktadır.
+
+Diğer işletim sistemlerinin aksine, Linux'te thread ile process arasında çok az fark vardır.
+
+Bu nedenle thread'ler, *LightWeightProcess* olarak adlandırılmaktadır.
+
+> Çalışan thread implementasyonunu getconf GNU_LIBPTHREAD_VERSION komutuyla öğrenebilirsiniz.
+
+Her iki implementasyon da thread yönetiminin tamamen kullanıcı kipinde çalışan bir Virtual Machine üzerinde yapıldığı green threads uyarlaması değildir.
+
+Her program başlatıldığında, bir kernel thread'i de otomatik olarak oluşturulur.
+
+Çalışan herhangi bir process'in thread spesifik bilgileri `/proc/<PID>/task` dizini altında yer alır. Single-thread uygulamalar için de bu dizin altında PID ile aynı değere sahip bir task kaydı olduğu görünecektir.
+
+
+## Thread Oluşturma
+
+Yeni bir thread oluşturmak için `pthread_create` fonksiyonu kullanılır.
+
+Thread fonksiyonlarının kullanımı için `pthread.h` başlık dosyası include edilmelidir.
+
+Threadler ana program ile aynı adresleme alanını ve aynı file descriptor'ları kullanırlar.
+
+Pthread kütüphanesi aynı zamanda senkronizasyon işlemleri için gerekli **mutex** ve **conditional** işlemleri için gerekli desteği de içermektedir.
+
+Pthread kütüphanesi fonksiyonları kullanıldığında uygulama `pthread` kütüphanesi ile de linklenmelidir:
+
+```
+$ gcc -o example example_thread.c -lpthread
+```
+```
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg)
+```
+
+Başarılı durumda 0 döner. Hata durumunda ise geriye bir hata kodu dönecektir.
+
+`thread` parametresi pthread_t türünde olup önceden tanımlanması gerekir. Oluşan thread'e bu referansla her zaman erişilebilecektir.
+
+`attr` parametresi thread spesifik olarak `pthread_attr_` ile başlayan fonksiyonlarla ayarlanmış, scheduling policy, stack büyüklüğü, detach policy gibi kuralları gösterir.
+
+`start_routine` thread tarafından çalıştırılacak olan fonksiyonu gösterir.
+
+`arg` ise thread tarafından çalıştırılacak fonksiyona geçirilecek `void*`'a cast edilmiş genel bir veri yapısını göstermektedir.
+
+
+### Örnek Uygulama
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+
+void *worker(void *data)
+{
+    char *name = (char*)data;
+    for (int i=0; i<120; i++) {
+        usleep(50000);
+        printf("Hello from thread %s\n", name);
+    }
+    printf("Thread %s done...\n", name);
+    return NULL;
+}
+
+int main(void) {
+    pthread_t th1, th2;
+    pthread_create(&th1, NULL, worker, "A");
+    pthread_create(&th2, NULL, worker, "B");
+    sleep(5);
+    printf("Exiting from main program\n");
+    return 0;
+}
+```
+
+
+## Thread Turleri
+
+### Joinable ve Detachable Thread Türleri
+
+Thread kullanılan bir uygulamada `main()` fonksiyonundan return edilirse, tüm thread'ler de sonlandırılır ve kullanılan tüm kaynaklar sisteme geri verilir.
+
+Aynı şekilde herhangi bir thread içerisinden `exit()` benzeri bir komutla çıkış yapılması halinde gene tüm thread'ler sonlandırılacaktır.
+
+`pthread_join` fonksiyonu ile, bir thread'in sonlanmasını bekleyebiliriz. Bu fonksiyonun kullanıldığı thread, sonlanması beklenen thread sonlanana kadar bloklanacaktır.
+
+Normal (*joinable*) thread'ler, sonlanmış olsa dahi pthread_join ile join işlemine tabi tutulmazlar ise, CPU tarafından tekrar schedule edilmeseler de sistemden kullandığı kaynaklar **geri verilmez**.
+
+### Detachable Thread
+
+Bazen `pthread_join` ile join işlemi yapmanın anlamlı olmadığı, thread'in ne zaman sonlanacağının öngörülemediği durumlar olabilir.
+
+Bu durumda thread return ettiği noktada tüm kaynakların sisteme otomatik olarak geri verilmesini sağlayabiliriz.
+
+Bunu sağlamak için ise, ilgili thread'leri, **DETACHED** durumu ile başlatmamız gerekmektedir.
+
+Bir thread başlatılırken thread attribute değerleri üzerinden veya `pthread_detach` fonksiyonu ile *DETACH* durumu belirtiebilir:
+
+```c
+int pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+int pthread_detach(pthread_t thread);
+```
+
+### pthread_join Örneği
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+
+
+void *worker(void *data)
+{
+        char *name = (char*)data;
+        for (int i=0; i<120; i++) {
+                usleep(50000);
+                printf("Hello from thread %s\n", name);
+        }
+        printf("Thread %s done...\n", name);
+        return NULL;
+}
+
+int main(void) {
+        pthread_t th1, th2;
+        pthread_create(&th1, NULL, worker, "A");
+        pthread_create(&th2, NULL, worker, "B");
+        sleep(5);
+        printf("Exiting from main program\n");
+        pthread_join(th1, NULL);
+        pthread_join(th2, NULL);
+        return 0;
+}
+```
+
+
+### Thread Sonlandırma
+
+Bir thread, başka bir thread tarafından, ilgili `pthread_t` id değeri verilmek suretiyle cancel edilebilir:
+
+```c
+int pthread_cancel (pthread_t thread);
+```
+
+### Örnek: thread_cancel.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+
+void *worker(void *data)
+{
+    char *name = (char*)data;
+    for (int i=0; i<120; i++) {
+        usleep(50000);
+        printf("Hello from thread %s\n", name);
+    }
+    printf("Thread %s done...\n", name);
+    return NULL;
+}
+
+int main(void) {
+    pthread_t th1, th2;
+    pthread_create(&th1, NULL, worker, "A");
+    pthread_create(&th2, NULL, worker, "B");
+    sleep(1);
+    printf("## Cancelling thread B\n");
+    pthread_cancel(th2);
+    usleep(100000);
+    printf("## Cancelling thread A\n");
+    pthread_cancel(th1);
+    printf("Exiting from main program\n");
+    return 0;
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
