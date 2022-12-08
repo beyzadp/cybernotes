@@ -9,7 +9,7 @@
 - [Dosya Sistemi](#dosya-sistemi)
 - [Kullanici, Grup ve Erisim Yetkileri](#kullanıcı-grup-ve-erişim-yetkileri)
 - [Dosya Islemleri](#dosya-i̇şlemleri)
-- [IO Modelleri] (#io-modelleri)
+- [IO Modelleri](#io-modelleri)
 - [Senkron IO](#senkron-io)
 - [Sinyaller](#sinyaller)
 - [Signal Safe Kavrami](#signal-safe-kavramı)
