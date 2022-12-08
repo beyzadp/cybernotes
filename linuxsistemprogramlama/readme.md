@@ -15,6 +15,12 @@
 - [Signal Safe Kavrami](#signal-safe-kavramı)
 - [Thread Kullanimi](#thread-kullanımı)
 - [Thread Olusturma](#thread-oluşturma)
+- [Thread Turleri](#thread-turleri)
+- [Mutex Kullanimi](#mutex-kullanımı)
+- [Spinlock & Mutex Karsilastirmasi](#spinlock--mutex-karşılaştırması)
+- [Semafor Kullanimi](#semafor-kullanımı)
+- [Semafor Turleri](#semafor-türleri)
+- [Semafor Operasyonlari](#semafor-operasyonları)
 
 </details>
 
