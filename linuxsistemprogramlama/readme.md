@@ -1034,6 +1034,159 @@ debug: Elapsed time with 100000000 loops: 11.823482 (main locktest.c:120)
 Görüldüğü üzere doğrudan spinlock kullandığımız versiyona oranla biraz daha kötü ama ona çok yakın bir değer elde etmiş olduk.
 
 
+## Semafor Kullanımı
+
+POSIX semaforlar, farklı thread veya process'ler tarafından kullanılan ortak bir kaynağa erişim için gerekli senkronizasyon altyapısını sunar.
+
+Semaforlar üzerinde kilitleme ve kilidi kaldırma yerine, semafor değerini artırma ve azaltma şeklinde işlemler yapılabilir.
+
+
+### Semafor ve Mutex Karşılaştırması
+
+- Semaforların pthread mutex'lerden temel farkı, sadece aynı uygulamanın thread'leri arasında değil, farklı process'ler arasındaki senkronizasyon işlemleri için de kullanılabilmesidir.
+- Aynı uygulama içerisinde semafor veya mutex kullanımı açısından performans farkı görülmese de, mutex kullanımı tercih edilmelidir. Mutex kullanımı sayesinde, ancak mutex'i lock etmiş thread'in tekrar unlock yapabilmesini garanti etmiş oluruz.
+- Semafor kullanılması durumunda, bir thread tarafından artırılan semafor değeri, başka bir thread tarafından düşürülebilir. Bu nedenle semaforlar, eşzamanlı uygulama geliştirme sürecindeki goto deyimi olarak da nitelendirilir.
+- Bununla birlikte, farklı process'ler arasındaki senkronizasyon probleminin çözümü ve async-signal safe yapısı nedeniyle multi-threaded uygulamalarda signal handler içerisinden kullanılabilmesi, semafor kullanımının avantajlı olduğu noktalardır.
+
+
+## Semafor Türleri
+
+- İsimlendirilmiş (Named) Semafor
+
+Bu tipteki semaforlar, tanımlanan bir isim üzerinden farklı process'ler arasında kullanılabilirler.
+
+- İsimlendirilmemiş (Un-Named) Semafor
+
+Atanmış bir ismi olmayan ancak ortak bir bellek bölgesinde yer alan semafor tipidir.
+Thread'ler arasında kullanılmak istendiğinde, heap'tan alınmış veya global olarak tanımlanmış değişkenler içerisinde tutulur.
+Process'ler arasında kullanılmak istendiğinde "shared memory" yöntemleriyle process'ler arasında erişilebilen ortak bellek bölgesinde tutulur.
+
+### İsimlendirilmiş (Named) Semafor Kullanımı
+
+Tipik kullanımı şu şekildedir:
+
+    sem_open() ile semafor oluşturulur veya kullanım için açılır
+
+    sem_post() ile semaforun değeri artırılırken sem_wait() ile semaforun azaltılır
+
+    sem_getvalue() ile o anki değeri öğrenilir
+
+    sem_close() ile semafore erişim iptal edilir
+
+    sem_unlink() ile semafor tamamen silinmek üzere işaretlenir, semaforu kullanan tüm process'ler sem_close() yaptıktan sonra silme gerçekleşir.
+
+#### `sem_open`
+
+    Yeni bir isimli semafor oluşturmak veya varolana erişebilmek için kullanılır.
+
+    Eğer yeni bir semafor oluşuyorsa, semafora erişim izni için gerekli bit maskesi ve semaforun ilk değeri de parametre olarak verilir.
+
+    Burada kullanılan bit maskesi, dosya işlemlerinde kullanılanlarla aynıdır.
+
+    Semaforun oluşturulması ve ilk değerinin atanması işlemi atomik olarak gerçekleşir.
+
+    Fonksiyon geri dönüş değeri olarak sem_t * şeklinde bir adres döndürür.
+
+    Hata durumunda bu değer SEM_FAILED'e eşit olur.
+
+    Başarılı durumda /dev/shm dizini altında semaforun referansı oluşur.
+
+#### `sem_close`
+
+    Bir süreç semafor oluşturduğunda, çekirdek tarafından ilgili sürecin semafor ilişkisi kurulur.
+
+    sem_close fonksiyonu ile çağrıldığı sürecin ilgili semaforla ilişkisi kesilir.
+
+    İlgili semafor için kullanıldığı süreç sayısı sayacı bir azaltılır.
+
+    Tüm isimlendirilmiş semaforlar, ilgili süreç sonlandığında veya exec çağrısıyla yeni bir uygulama belleğe yüklendiğinde, yukarıdaki işlem çekirdek tarafından otomatik yapılır.
+
+#### `sem_unlink`
+
+    Bir semaforu yok etmek için sem_unlink fonksiyonu kullanılır.
+
+    Bu fonksiyonla ilgili semaforun, kullanımda olan tüm süreçler tarafından kapatıldığında otomatik olarak silinmesi istendiğini belirtmiş oluruz.
+
+    İlgili tüm süreçler tarafından semafor kullanımı sonlandırıldığında, semafor yok edilir ve /dev/shm altındaki dosya referansı da silinir.
+
+
+### Örnek: Semafor Oluşturma
+
+```c
+/* sem_open.c */
+#include <semaphore.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <getopt.h>
+#include "common.h"
+
+static void usageError(const char *progName)
+{
+    fprintf(stderr, "Usage: %s [-cx] name [octal-perms [value]]\n", progName);
+    fprintf(stderr, "-c Create semaphore (O_CREAT)\n");
+    fprintf(stderr, "-x Create exclusively (O_EXCL)\n");
+    exit(EXIT_FAILURE);
+}
+
+int main(int argc, char *argv[])
+{
+    int flags, opt;
+    mode_t perms;
+    unsigned int value;
+    sem_t *sem;
+    flags = 0;
+    while ((opt = getopt(argc, argv, "cx")) != -1) {
+        switch (opt) {
+        case 'c':
+            flags |= O_CREAT;
+            break;
+        case 'x':
+            flags |= O_EXCL;
+            break;
+        default:
+            usageError(argv[0]);
+        }
+    }
+    if (optind >= argc) usageError(argv[0]);
+    /* Default permissions are rw-------; default semaphore initialization value is 0 */
+    perms = (argc <= optind + 1) ? (S_IRUSR | S_IWUSR) : getInt(argv[optind + 1], GN_BASE_8, "octal-perms");
+    value = (argc <= optind + 2) ? 0 : getInt(argv[optind + 2], 0, "value");
+
+    sem = sem_open(argv[optind], flags, perms, value);
+    if (sem == SEM_FAILED)    errExit("sem_open");
+
+    exit(EXIT_SUCCESS);
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
