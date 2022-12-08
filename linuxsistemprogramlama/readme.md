@@ -1,6 +1,24 @@
 # LINUX SISTEM PROGRAMLAMA
 
-## Sistem Programlamaya Giriş
+<details>
+<summary> <strong> İçindekiler </strong></summary>
+
+- [Sistem Programlamaya Giris](#sistem-programlamaya-giris)
+- [Sistem Cagrilari](#sistem-cagrilari)
+- [API ve ABI](#api-ve-abi)
+- [Dosya Sistemi](#dosya-sistemi)
+- [Kullanici, Grup ve Erisim Yetkileri](#kullanıcı-grup-ve-erişim-yetkileri)
+- [Dosya Islemleri](#dosya-i̇şlemleri)
+- [IO Modelleri] (#io-modelleri)
+- [Senkron IO](#senkron-io)
+- [Sinyaller](#sinyaller)
+- [Signal Safe Kavrami](#signal-safe-kavramı)
+- [Thread Kullanimi](#thread-kullanımı)
+- [Thread Olusturma](#thread-oluşturma)
+
+</details>
+
+## Sistem Programlamaya Giris
 
 Ken Thompson işletim sistemini tasarlarken pek çok prensibi MULTICS'den almıştı. 
 
@@ -14,9 +32,7 @@ Ken Thompson işletim sistemini tasarlarken pek çok prensibi MULTICS'den almı�
 - Çoklu İşlemci: Birden fazla CPU kullanımı desteklenmektedir.
 - Hot-Swap: Çalışma zamanında sistemi kapatma ihtiyacı olmaksızın bellek, disk ve CPU eklenip çıkarılabilmektedir.
 
-
-
-## Sistem Çağrıları
+## Sistem Cagrilari
 
 Kullanıcı kipinde çalışan bir uygulamanın, sistem çağrıları aracılığıyla işletim sistemi çekirdeğinden ihtiyaç duyduğu servisleri alabilmesi sağlanır.
 
@@ -372,7 +388,7 @@ $ cat /proc/sys/fs/file-max
 400000
 ```
 
-##IO Modelleri
+## IO Modelleri
 
 
 |IO Modeli      	|Blocking  		| Non-Blocking
