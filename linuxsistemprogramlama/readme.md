@@ -1,6 +1,5 @@
 # LINUX SISTEM PROGRAMLAMA
 
-<details>
 <summary> <strong> İçindekiler </strong></summary>
 
 - [Sistem Programlamaya Giris](#sistem-programlamaya-giris)
@@ -22,7 +21,6 @@
 - [Semafor Turleri](#semafor-türleri)
 - [Semafor Operasyonlari](#semafor-operasyonları)
 
-</details>
 
 ## Sistem Programlamaya Giris
 
