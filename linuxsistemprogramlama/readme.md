@@ -1221,21 +1221,362 @@ int main(int argc, char *argv[])
 }
 ```
 
+### `sem_trywait ve sem_timedwait`
 
 
 
+    Semafor bekleme operasyonu bir sinyal gelmediği müddetçe işlem gerçekleşene kadar çağıran süreci bloklamaktadır.
+
+    Bloklama yapması istenmediği durumda, sem_trywait kullanılabilir. Bu modelde eğer semafor değeri 1 ise azaltılıp başarılı döner, ancak değer zaten 0 ise bloklama yapılmaz ve EAGAIN hatası ile dönülür.
+
+    Bekleme işlemi için maksimum zaman aralığını seçmek istersek, sem_timedwait fonksiyonunu kullanabiliriz. Bu durumda semafor değeri hemen azaltılamıyorsa, maksimum olarak verilen parametre süresi kadar bekleyecektir. Bu süre zarfında da işlemin gerçekleşmemesi halinde ETIMEDOUT hatası ile döner.
+
+
+### `sem_post`
 
 
 
+    Semaforun değerini 1 artırmak için kullanılır.
+
+    Eğer semaforun değeri zaten 0 ise ve başka bir süreç aynı semaforu beklediği için bloklanmış durumdaysa, ilgili süreç uyandırılır.
+
+    Yukarıdaki durumda birden fazla sürecin aynı semaforu beklerken bloklanması sözkonusu olursa, hangi sürecin uyandırılacağı garanti edilemez.
+
+
+### Örnek: Semafor Değerini Artırma
+
+```c
+#include <semaphore.h>
+#include "common.h"
+
+int main(int argc, char *argv[])
+{
+    sem_t *sem;
+    if (argc != 2)
+        usageErr("%s sem-name\n", argv[0]);
+
+    sem = sem_open(argv[1], 0);
+    if (sem == SEM_FAILED)
+        errExit("sem_open");
+
+    if (sem_post(sem) == -1)
+        errExit("sem_post");
+
+    exit(EXIT_SUCCESS);
+}
+```
+
+sem_getvalue
+
+    Mevcut bir semaforun o anki değerini almak için kullanılır.
+
+
+     
+
+### Örnek
+
+```c
+#include <semaphore.h>
+#include "common.h"
+
+int main(int argc, char *argv[])
+{
+    int value;
+    sem_t *sem;
+    if (argc != 2)
+        usageErr("%s sem-name\n", argv[0]);
+
+    sem = sem_open(argv[1], 0);
+
+    if (sem == SEM_FAILED)
+        errExit("sem_open");
+
+    if (sem_getvalue(sem, &value) == -1)
+        errExit("sem_getvalue");
+
+    printf("%d\n", value);
+    exit(EXIT_SUCCESS);
+}
+```
+
+### İsimsiz Semaforlar
+
+    İsimsiz semaforlar, ortak bir bellek alanına erişimin mümkün olduğu tüm senaryolarda kullanılabilir.
+
+    İsimlendirilmiş semaforlardaki fonksiyonlar aynen kullanılabilir.
+
+    Bu fonksiyonlara ek olarak isimsize semaforlarda sem_init ve sem_destroy fonksiyonları da kullanılmaktadır.
+
+### `sem_init`
+
+    İlgili semaforun ilklendirilmesi işlemlerini gerçekleştirir.
+
+    Fonksiyonun 2. parametresi olan pshared değeri 0 olduğu takdirde, semafor sadece aynı sürecin thread'leri içerisinde kullanılabilir. Bu nedenle shared memory kullanımına gerek kalmadan, global bir değişkende veya heap üzerinde ayrılan bir alanda tutulabilir.
+
+    pshared değeri 0'dan farklı olursa, semafor farklı süreçler arasında kullanılabilir. Bu durumda 1. parametredeki adres, shared memory üzerindeki bir yeri göstermelidir.
+
+    Bu fonksiyonun aynı semafor için birden fazla çağrılması durumunda sistem kararlı davranamaz. Bu nedenle, her semaforun sadece bir defa ilklendirilmesi garanti edilmelidir.
+
+### `sem_destroy`
+
+    İsimsiz bir semaforun sonlandırılmasını sağlar.
+
+    Semafor sonlandırılmadan, tutulduğu bellek bölgesi free edilmemelidir.
+
+### Örnek: İsimsiz semafor kullanımı
+
+```c
+#include <semaphore.h>
+#include <pthread.h>
+#include "common.h"
+
+static int glob = 0;
+static sem_t sem;
+
+static void *threadFunc(void *arg)
+{
+    int loops = *((int *) arg);
+    int loc, j;
+    for (j = 0; j < loops; j++) {
+        if (sem_wait(&sem) == -1)
+            errExit("sem_wait");
+        loc = glob;
+        loc++;
+        glob = loc;
+        if (sem_post(&sem) == -1)
+            errExit("sem_post");
+    }
+    return NULL;
+}
+
+int main(int argc, char *argv[])
+{
+    pthread_t t1, t2;
+    int loops, s;
+    loops = (argc > 1) ? getInt(argv[1], GN_GT_0, "num-loops") : 10000000;
+
+    /* Initialize a thread-shared mutex with the value 1 */
+    if (sem_init(&sem, 0, 1) == -1)
+        errExit("sem_init");
+
+    /* Create two threads that increment 'glob' */
+    s = pthread_create(&t1, NULL, threadFunc, &loops);
+    if (s != 0)
+        errExit("pthread_create");
+
+    s = pthread_create(&t2, NULL, threadFunc, &loops);
+    if (s != 0)
+        errExit("pthread_create");
+
+    /* Wait for threads to terminate */
+    s = pthread_join(t1, NULL);
+    if (s != 0)
+        errExit("pthread_join");
+
+    s = pthread_join(t2, NULL);
+    if (s != 0)
+        errExit("pthread_join");
+
+    printf("glob = %d\n", glob);
+    exit(EXIT_SUCCESS);
+}
+```
+
+## Shared Memory Kullanımı
+
+- POSIX shared memory kullanımı, System V shared memory modeline göre avantajları nedeniyle özellikle yeni uygulamalarda daha fazla tercih edilmektedir.
+- Linux 2.4 çekirdeği ile birlikte desteklenmeye başlanmıştır.
+- Semafor kullanımına benzer şekilde, POSIX shared memory objeleri de Linux altında tmpfs dosya sistemi ile /dev/shm dizini altına bağlanmış halde tutulur.
+- Bu dizin tmpfs türünde öntanımlı olarak, mevcut sistem belleğinin maksimum yarısını kullanacak şekilde bağlanır ancak mount işleminde parametre vererek bu değeri değiştirmek mümkündür.
+
+### `shm_open`
+
+    shm_open fonksiyonu, standart kütüphanedeki open fonksiyonuyla aynı arayüze sahiptir.
+
+    Parametre olarak dosya ismi, işleme dair ayarlanan opsiyonlar ve açılacak kaynak üzerindeki erişim yetkilerini alır.
+
+    open fonksiyonundakine benzer şekilde O_CREAT, O_EXCL, O_RDONLY, O_RDRW ve O_TRUNC opsiyonlarının bir veya birkaçı birleştirilerek parametre olarak verilebilir.
+
+    Geriye dönen file descriptor referansı üzerinden fstat fonksiyonuyla yapacağımız kontroller ile, shared memory alanının büyüklüğünü öğrenebiliriz. Yeni açılan shared memory alanlarının boyutu başlangıçta sıfırdır.
+
+    Memory map işlemini yapmadan önce, ftruncate fonksiyonu ile shared memory alanının boyutunu istediğimiz değere ayarlayabiliriz. Bu işlem üretilen alandaki bellek bölgesini '\0' değerleriyle doldurur.
+
+
+### Örnek: Shared Memory Oluşturma
 
 
 
+    POSIX shared memory kullanımı, System V shared memory modeline göre avantajları nedeniyle özellikle yeni uygulamalarda daha fazla tercih edilmektedir.
+
+    Linux 2.4 çekirdeği ile birlikte desteklenmeye başlanmıştır.
+
+    Semafor kullanımına benzer şekilde, POSIX shared memory objeleri de Linux altında tmpfs dosya sistemi ile /dev/shm dizini altına bağlanmış halde tutulur.
+
+    Bu dizin tmpfs türünde öntanımlı olarak, mevcut sistem belleğinin maksimum yarısını kullanacak şekilde bağlanır ancak mount işleminde parametre vererek bu değeri değiştirmek mümkündür.
+
+### `shm_open`
+
+    shm_open fonksiyonu, standart kütüphanedeki open fonksiyonuyla aynı arayüze sahiptir.
+
+    Parametre olarak dosya ismi, işleme dair ayarlanan opsiyonlar ve açılacak kaynak üzerindeki erişim yetkilerini alır.
+
+    open fonksiyonundakine benzer şekilde O_CREAT, O_EXCL, O_RDONLY, O_RDRW ve O_TRUNC opsiyonlarının bir veya birkaçı birleştirilerek parametre olarak verilebilir.
+
+    Geriye dönen file descriptor referansı üzerinden fstat fonksiyonuyla yapacağımız kontroller ile, shared memory alanının büyüklüğünü öğrenebiliriz. Yeni açılan shared memory alanlarının boyutu başlangıçta sıfırdır.
+
+    Memory map işlemini yapmadan önce, ftruncate fonksiyonu ile shared memory alanının boyutunu istediğimiz değere ayarlayabiliriz. Bu işlem üretilen alandaki bellek bölgesini '\0' değerleriyle doldurur.
+
+Örnek: Shared Memory Oluşturma
+
+```c
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include "common.h"
+
+static void usageError(const char *progName)
+{
+    fprintf(stderr, "Usage: %s [-cx] name size [octal-perms]\n", progName);
+    fprintf(stderr, "-c Create shared memory (O_CREAT)\n");
+    fprintf(stderr, "-x Create exclusively (O_EXCL)\n");
+    exit(EXIT_FAILURE);
+}
+
+int main(int argc, char *argv[])
+{
+    int flags, opt, fd;
+    mode_t perms;
+    size_t size;
+    void *addr;
+    flags = O_RDWR;
+    while ((opt = getopt(argc, argv, "cx")) != -1) {
+        switch (opt) {
+        case 'c':
+            flags |= O_CREAT;
+            break;
+        case 'x':
+            flags |= O_EXCL;
+            break;
+        default:
+            usageError(argv[0]);
+        }
+    }
+    if (optind + 1 >= argc)
+        usageError(argv[0]);
+
+    size = getLong(argv[optind + 1], GN_ANY_BASE, "size");
+    perms = (argc <= optind + 2) ? (S_IRUSR | S_IWUSR) :
+    getLong(argv[optind + 2], GN_BASE_8, "octal-perms");
+
+    /*  Create shared memory object and set its size */
+    fd = shm_open(argv[optind], flags, perms);
+    if (fd == -1)
+        errExit("shm_open");
+
+    if (ftruncate(fd, size) == -1)
+        errExit("ftruncate");
+
+    /*  Map shared memory object */
+    addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (addr == MAP_FAILED)
+            errExit("mmap");
+
+    exit(EXIT_SUCCESS);
+
+}
+```
+
+
+### Örnek: Shared Memory Yazma
+
+```c
+#include <fcntl.h>
+#include <sys/mman.h>
+#include "common.h"
+
+int main(int argc, char *argv[])
+{
+    int fd;
+    size_t len;
+    char *addr;
+    /*  Size of shared memory object */
+
+     if (argc != 3 || strcmp(argv[1], "--help") == 0)
+       usageErr("%s shm-name string\n", argv[0]);
+
+    fd = shm_open(argv[1], O_RDWR, 0);
+
+    if (fd == -1)
+        errExit("shm_open");
+
+    /*  Open existing object */
+    len = strlen(argv[2]);
+    if (ftruncate(fd, len) == -1)
+        /*  Resize object to hold string */
+        errExit("ftruncate");
+
+    printf("Resized to %ld bytes\n", (long) len);
+    addr = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (addr == MAP_FAILED)
+        errExit("mmap");
+    if (close(fd) == -1)
+        errExit("close");
+    /*  'fd' is no longer needed */
+    printf("copying %ld bytes\n", (long) len);
+    memcpy(addr, argv[2], len);
+    /*  Copy string to shared memory */
+    exit(EXIT_SUCCESS);
+}
+```
+
+### Kullanım
+
+- İlk örnekteki uygulamayı kullanarak, 4 byte uzunluğunda deneme1 adında bir shared memory alanı oluşturalım:    
+./shm_create -c deneme1 4
+
+- Ardından hexdump ile ilgili dosyaya bakalım:
+- hexdump -C /dev/shm/deneme1 00000000 00 00 00 00
+- Şimdi bu shared memory alanını genişleterek başka bir süreçten içerisine veri aktarıp hexdump ile kontrol edelim:
+
+```
+./shm_write deneme1 "Örnek bir metin"
+Resized to 16 bytes
+copying 16 bytes
+
+hexdump -C /dev/shm/deneme1
+00000000  c3 96 72 6e 65 6b 20 62  69 72 20 6d 65 74 69 6e  |..rnek bir metin|
+```
+
+### `shm_unlink`
 
 
 
+    Shared memory alanını kaldırmak istediğimizde kullanılır.
+
+    shm_unlink işlemi sonrası, ilgili alanını memory-map yöntemiyle kullanmakta olan diğer süreçlerin mapping bilgilerini etkilemez. İlgili süreçlerde ayrıca munmap fonksiyonu çağrılmalıdır.
+
+    Shared memory alanını kullanan tüm süreçler shm_unlink yaptıktan veya sonlandıktan sonra, işletim sistemi tarafından ilgili alan tamamen kaldırılır.
+
+### Örnek
+
+```c
+/* shm_remove.c */
+#include <fcntl.h>
+#include <sys/mman.h>
+#include "common.h"
+
+int main(int argc, char *argv[])
+{
+    if (argc != 2 || strcmp(argv[1], "--help") == 0)
+            usageErr("%s shm-name\n", argv[0]);
+    if (shm_unlink(argv[1]) == -1)
+            errExit("shm_unlink");
+    exit(EXIT_SUCCESS);
+}
+```
 
 
-
+## Memory Mapped IO
 
 
 
