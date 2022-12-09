@@ -20,6 +20,7 @@
 - [Semafor Kullanimi](#semafor-kullanımı)
 - [Semafor Turleri](#semafor-türleri)
 - [Semafor Operasyonlari](#semafor-operasyonları)
+- [Shared Memory Kullanimi](#shared-memory-kullanımı)
 
 
 ## Sistem Programlamaya Giris
